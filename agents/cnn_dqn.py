@@ -10,6 +10,7 @@ from utils.memory import ReplayMemory
 from collections import namedtuple
 import matplotlib
 import matplotlib.pyplot as plt
+from pathlib import Path
 
 # Ensure logs and models directories exist
 os.makedirs("logs", exist_ok=True)
@@ -23,13 +24,16 @@ class CNN_DQN(nn.Module):
     def __init__(self, input_shape):
         super(CNN_DQN, self).__init__()
 
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=3, stride=2)
+        self.conv1 = nn.Conv2d(1, 6, kernel_size=3, stride=2)
+        self.conv2 = nn.Conv2d(6, 6, kernel_size=3, stride=1)
         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=3)
+
+        self.conv3 = nn.Conv2d(6, 12, kernel_size=3)
+        self.conv3 = nn.Conv2d(12, 24, kernel_size=3)
         self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
         self.flatten = nn.Flatten()
 
-        self.fc1 = nn.Linear(2000, 100)
+        self.fc1 = nn.Linear(600, 100)
         self.fc2_steering = nn.Linear(100, 1)
         self.fc2_gas = nn.Linear(100, 1)
 
@@ -54,31 +58,31 @@ class CNN_DQN_Agent:
     """Deep Q-Learning Agent with CNN"""
     def __init__(self, 
           input_shape, 
-          action_space, 
-          lr=0.001, 
-          gamma=0.99,
-          tau = 0.005,
-          epsilon=0.5,
-          epsilon_end=0.0,
-          epsilon_decay_steps=1000,
-          memory_size=10000, 
-          batch_size=2,
-          steps_per_target_net_update = 100,
-          replay_buffer_size = 100
+          action_space,
+          run_name, 
+          learning_rate, 
+          gamma,
+          tau,
+          epsilon_start,
+          epsilon_end,
+          epsilon_decay_steps,
+          batch_size,
+          steps_per_target_net_update,
+          replay_buffer_size
           ):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.policy_net = CNN_DQN(input_shape).to(self.device)
         self.target_net = CNN_DQN(input_shape).to(self.device)
-
+        
         self.target_net.load_state_dict(self.policy_net.state_dict())
 
-        self.optimizer = optim.AdamW(self.policy_net.parameters(), lr=lr, amsgrad=True)
-
+        self.optimizer = optim.AdamW(self.policy_net.parameters(), lr=learning_rate, amsgrad=True)
+        self.run_name = run_name
         self.memory = ReplayMemory(capacity = replay_buffer_size)
         self.gamma = gamma
         self.tau = tau
-        self.epsilon = epsilon
+        self.epsilon = epsilon_start
         self.epsilon_end = epsilon_end
         self.epsilon_decay_steps = epsilon_decay_steps
         self.epsilon_schedule = torch.logspace(torch.log10(torch.tensor(self.epsilon)), torch.log10(torch.tensor(self.epsilon_end + 1e-9)), steps = self.epsilon_decay_steps)
@@ -88,8 +92,8 @@ class CNN_DQN_Agent:
         self.episode_durations = []
         self.action_space = action_space
 
-        self.checkpoint_path = "checkpoints/cnn_dqn.pth"
-        self.reward_log_file = "logs/rewards.csv"
+        self.checkpoint_path = "checkpoints/cnn_dqn"
+        self.reward_log_file = "logs/cnn_dqn"
     
     def select_action(self, state, explore=True):
         """Selects an action using epsilon-greedy strategy"""
@@ -160,7 +164,10 @@ class CNN_DQN_Agent:
 
         # Compute Huber loss
         criterion = nn.SmoothL1Loss()
-        loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
+        expected_state_action_values = expected_state_action_values.unsqueeze(1)  # Ensure shape matches
+        expected_state_action_values = expected_state_action_values.expand_as(state_action_values)  # Match shape
+
+        loss = criterion(state_action_values, expected_state_action_values)  # Compute loss
 
         # Optimize the model
         self.optimizer.zero_grad()
@@ -182,18 +189,20 @@ class CNN_DQN_Agent:
 
     def save_checkpoint(self, episode):
         """Saves the model checkpoint"""
-        torch.save(self.policy_net.state_dict(), self.checkpoint_path)
+        Path(self.checkpoint_path).mkdir(parents=True, exist_ok=True)
+        torch.save(self.policy_net.state_dict(), f"{self.checkpoint_path}/{self.run_name}_episode_{episode}.pth")
         print(f"Checkpoint saved at episode {episode}")
 
-    def load_checkpoint(self):
+    def load_checkpoint(self, file):
         """Loads the model checkpoint"""
         if os.path.exists(self.checkpoint_path):
-            self.policy_net.load_state_dict(torch.load(self.checkpoint_path))
+            self.policy_net.load_state_dict(torch.load(f"{self.checkpoint_path}/{file}"))
             print("Checkpoint loaded.")
 
     def log_reward(self, episode, reward):
         """Logs episode rewards to CSV"""
-        with open(self.reward_log_file, "a", newline="") as file:
+        Path(self.reward_log_file).mkdir(parents=True, exist_ok=True)
+        with open(f"{self.reward_log_file}/{self.run_name}.csv", "a", newline="") as file:
             writer = csv.writer(file)
             writer.writerow([episode, reward])
 

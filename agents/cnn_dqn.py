@@ -188,17 +188,17 @@ class CNN_DQN_Agent:
     def load_checkpoint(self):
         """Loads the model checkpoint"""
         if os.path.exists(self.checkpoint_path):
-            self.model.load_state_dict(torch.load(self.checkpoint_path))
+            self.policy_net.load_state_dict(torch.load(self.checkpoint_path))
             print("Checkpoint loaded.")
 
-    def _log_reward(self, episode, reward):
+    def log_reward(self, episode, reward):
         """Logs episode rewards to CSV"""
         with open(self.reward_log_file, "a", newline="") as file:
             writer = csv.writer(file)
             writer.writerow([episode, reward])
 
 
-    def _log_loss(self, loss):
+    def log_loss(self, loss):
         with open(self.loss_log_file, "a", newline="") as file:
             writer = csv.writer(file)
             writer.writerow([self.steps, loss])

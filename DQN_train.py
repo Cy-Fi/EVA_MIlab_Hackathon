@@ -39,16 +39,18 @@ def plot_durations(episode_durations, show_result=False):
             display.display(plt.gcf())
 
 
-def train_agent(episodes, run_name):
+def train_agent(episodes, run_name, hyperparameters, load_from_checkpoint = ''):
     env = gym.make("CarRacing-v3", render_mode="rgb_array", lap_complete_percent=0.95, domain_randomize=False, continuous=True)
     
     agent = CNN_DQN_Agent(
         input_shape=env.observation_space.shape, 
         action_space=env.action_space,
-        run_name = RUN_NAME,
+        run_name = run_name,
         **hyperparameters
         )
-    # agent.load_checkpoint()
+
+    if load_from_checkpoint != '':
+        agent.load_checkpoint(load_from_checkpoint)
 
 
     for episode in range(episodes):
@@ -114,5 +116,5 @@ if __name__ == '__main__':
 
 
   RUN_NAME = f"CNN_DQN_{strftime('%Y%m%d%H%M%S', gmtime())}"
-  train_agent(episodes = 300, run_name = RUN_NAME)
+  train_agent(episodes = 300, run_name = RUN_NAME, hyperparameters=hyperparameters)
 

@@ -16,4 +16,9 @@ The hackathon will be developed in teams.
 - Kick-off meeting: Monday 10.2.2025 10h00
 - Final team presentations and Q&A: Wednesday, 12.02.2025, 16:30-18:00.
 
-Presentation format:  20 minutes per team, plus 10 minutes Q&A). All team members are expected to present. The presentation should contain: Methodology, Results, Code Overview, & brief demo. Part of the demo can be presented during the Q&A section.
+Presentation format:  20 minutes per team, plus 10 minutes Q&A). All team members are expected to present. The presentation should contain: Methodology, Results, Code Overview, & brief demo. Part of the demo can be presented during the Q&A section. How did we organize us? How did we test? Performance metrics chosen? Challenges and (potential) solutions? Demo of the agent (video), highlight specific behaviour that were interesting. 
+Goal: Have an idea why the agent performs the way it does and why some methods perform better.
+
+## Notes
+- The approach is one of the goals: These X methods seem to work well.
+- Perform a structured testing of these approaches, how to split the workload?, How to choose hyperparams because we can not test all combinations.

@@ -8,6 +8,8 @@ import random
 import csv
 from utils.memory import ReplayMemory
 from collections import namedtuple
+import matplotlib
+import matplotlib.pyplot as plt
 
 # Ensure logs and models directories exist
 os.makedirs("logs", exist_ok=True)
@@ -32,22 +34,21 @@ class CNN_DQN(nn.Module):
         self.fc2_gas = nn.Linear(100, 1)
 
     def forward(self, x):
-        x = x.permute(0, 1, 4, 2, 3)  # Shape -> (1, 1, 3, 96, 96)
-
-        # Reshape to remove the extra dimension
-        x = x.reshape(-1, 3, 96, 96)  # Shape -> (1, 3, 96, 96)
-
-        # Convert to grayscale
-        x = rgb_to_grayscale(x)  # Shape -> (1, 1, 96, 96)
-
+        x = torch.unsqueeze(torch.mean(x, dim=-1), 1) #RGB to Gray by taking the mean -> shape [batch_size, 1, 96, 96]
+        # print(f"Model in shape: {x.shape}")
         x = self.pool1(torch.relu(self.conv1(x)))
 
         x = self.pool2(torch.relu(self.conv2(x)))
 
         x = self.flatten(x)
         x = torch.relu(self.fc1(x))
+
+        action = torch.tanh(self.fc2_steering(x))
+        gas = torch.sigmoid(self.fc2_gas(x))
         
-        return torch.tanh(self.fc2_steering(x)), torch.sigmoid(self.fc2_gas(x))
+        out = torch.cat([action.unsqueeze(0), gas.unsqueeze(0), (1 - gas).unsqueeze(0)], dim=-1).squeeze() # return shape [batch_size, 3]
+        # print(f"Model out shape: {out.shape}")
+        return out
 
 class CNN_DQN_Agent:
     """Deep Q-Learning Agent with CNN"""
@@ -57,12 +58,12 @@ class CNN_DQN_Agent:
           lr=0.001, 
           gamma=0.99,
           tau = 0.005,
-          epsilon=1.0,
+          epsilon=0.5,
           epsilon_end=0.0,
           epsilon_decay_steps=1000,
           memory_size=10000, 
-          batch_size=32,
-          steps_per_target_net_update = 1000,
+          batch_size=2,
+          steps_per_target_net_update = 100,
           replay_buffer_size = 100
           ):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -84,6 +85,7 @@ class CNN_DQN_Agent:
         self.batch_size = batch_size
         self.steps_per_target_net_update = steps_per_target_net_update
         self.steps = 0
+        self.episode_durations = []
         self.action_space = action_space
 
         self.checkpoint_path = "checkpoints/cnn_dqn.pth"
@@ -105,20 +107,8 @@ class CNN_DQN_Agent:
             # Construct the action array
             return torch.tensor([steering, gas, 1 - gas], dtype=torch.float32)
         
-        state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
-            q_values_steering, q_values_gas = self.policy_net(state)
-            
-            steering = q_values_steering.item()  # Extract scalar value for steering
-            gas = q_values_gas.item()  # Extract first element for gas
-
-            # Create the action array in the correct format
-            action = torch.tensor([steering, gas, 1 - gas], dtype=torch.float32)
-            return action
-
-    def store_transition(self, state, action, reward, next_state, done):
-        """Stores experience in replay buffer"""
-        self.memory.push(state, action, reward, next_state, done)
+            return self.policy_net(state)
 
     def train_step(self):
         """Trains the policy_net using replay memory"""
@@ -126,8 +116,9 @@ class CNN_DQN_Agent:
             return
 
         transitions = self.memory.sample(self.batch_size)
-        batch = Transition(*zip(*transitions))
         
+        batch = Transition(*zip(*transitions))
+
         # Compute a mask of non-final states and concatenate the batch elements
         # (a final state would've been the one after which simulation ended)
         non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
@@ -136,16 +127,13 @@ class CNN_DQN_Agent:
                                                     if s is not None])
         
         state_batch = torch.cat(batch.state)
-        action_batch = torch.cat(batch.action)
+        action_batch = torch.stack(batch.action, 0)
         reward_batch = torch.cat(batch.reward)
-
-        print(f"state_batch: {state_batch.shape}")
 
         # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
         # columns of actions taken. These are the actions which would've been taken
         # for each batch state according to policy_net
-        
-        state_action_values = self.policy_net(state_batch).gather(1, action_batch)
+        state_action_values = self.policy_net(state_batch)
 
         # Compute V(s_{t+1})= max_a Q(s_{t+1}, a) for all next states.
         # Expected values of actions for non_final_next_states are computed based
@@ -154,7 +142,17 @@ class CNN_DQN_Agent:
         # state value or 0 in case the state was final.
         next_state_values = torch.zeros(self.batch_size, device=self.device)
         with torch.no_grad():
-            next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1).values
+            # Compute next best actions using the policy network (actor)
+            next_best_actions = self.policy_net(non_final_next_states)  # Expected shape: [batch_size, 3]
+
+            # Compute Q-values for these best actions using the target network (critic)
+            next_q_values = self.target_net(non_final_next_states)  # Expected shape: [batch_size, 3]
+
+            # Compute max Q-value across the three action dimensions
+            max_q_values = next_q_values.max(dim=1).values  # Expected shape: [batch_size]
+
+            # Ensure that max_q_values[non_final_mask] is indexed correctly
+            next_state_values[non_final_mask] = max_q_values[non_final_mask]
 
         # Compute the expected state-action values (Q values)
         #   Q(s_t,a_t) = r  + [GAMMA * max_a Q(s_{t+1}, a)]

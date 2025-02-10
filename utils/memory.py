@@ -1,16 +1,21 @@
 import random
 import numpy as np
-from collections import deque
+from collections import namedtuple, deque
 
-class ReplayBuffer:
+Transition = namedtuple('Transition',
+                        ('state', 'action', 'next_state', 'reward'))
+
+class ReplayMemory(object):
+
     def __init__(self, capacity):
-        self.buffer = deque(maxlen=capacity)
+        self.memory = deque([], maxlen=capacity)
 
-    def push(self, state, action, reward, next_state, done):
-        self.buffer.append((state, action, reward, next_state, done))
+    def push(self, *args):
+        """Save a transition"""
+        self.memory.append(Transition(*args))
 
     def sample(self, batch_size):
-        return random.sample(self.buffer, batch_size)
+        return random.sample(self.memory, batch_size)
 
     def __len__(self):
-        return len(self.buffer)
+        return len(self.memory)

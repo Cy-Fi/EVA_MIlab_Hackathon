@@ -7,28 +7,41 @@ import numpy as np
 import os
 import random
 import csv
-
+from pathlib import Path
 
 class CNN_PPO(nn.Module):
     """CNN Model for PPO"""
     def __init__(self, input_shape, num_actions):
         super(CNN_PPO, self).__init__()
 
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=3, stride=1, padding=1)
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2) 
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=1) 
         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=3, stride=1, padding=1)
-        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
 
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=1) 
+        self.conv4 = nn.Conv2d(64, 64, kernel_size=3, stride=1) 
+        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
         self.flatten = nn.Flatten()
 
-        self.fc1 = nn.Linear(11520, 100)
+        # Calculate the output shape dynamically after convolutions
+        dummy_input = torch.zeros(1, 1, 96, 96)
+        with torch.no_grad():
+            conv_out_size = self._get_conv_output(dummy_input)
 
-        # Separate layers for different outputs
-        self.fc2_steering = nn.Linear(100, 1)  # Steering output
-        self.fc2_gas = nn.Linear(100, 1)       # Gas output
-        self.value_head = nn.Linear(100, 1)    # Value function for critic
+        self.fc1 = nn.Linear(conv_out_size, 256) 
+        self.fc2_steering = nn.Linear(256, 1)  # Steering output
+        self.fc2_gas = nn.Linear(256, 1)       # Gas output
+        self.value_head = nn.Linear(256, 1)    # Value function for critic
 
         self.log_std = nn.Parameter(torch.zeros(num_actions))  # Log standard deviation for policy
+
+    def _get_conv_output(self, x):
+        """Pass a dummy tensor to get output shape dynamically"""
+        x = self.pool1(torch.relu(self.conv1(x)))
+        x = self.pool2(torch.relu(self.conv2(x)))
+        x = torch.relu(self.conv3(x))
+        x = torch.relu(self.conv4(x))  
+        return self.flatten(x).shape[1]
 
     def forward(self, x):
         x = x.float()
@@ -39,6 +52,9 @@ class CNN_PPO(nn.Module):
 
         x = self.pool1(torch.relu(self.conv1(x)))
         x = self.pool2(torch.relu(self.conv2(x)))
+        x = torch.relu(self.conv3(x))
+        x = torch.relu(self.conv4(x))
+
         x = self.flatten(x)
         x = torch.relu(self.fc1(x))
 
@@ -58,8 +74,17 @@ class CNN_PPO(nn.Module):
 
 class CNN_PPO_Agent:
     """PPO Agent with CNN"""
-    def __init__(self, input_shape, num_actions=3, gamma=0.99, lam=0.95, clip_epsilon=0.2):
+    def __init__(self, 
+                 input_shape, 
+                 run_name,
+                 num_actions=3, 
+                 gamma=0.99, 
+                 lam=0.95, 
+                 clip_epsilon=0.2
+                 ):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.run_name = run_name
+        
         self.gamma = gamma  # Discount factor
         self.lam = lam  # GAE Lambda
         self.clip_epsilon = clip_epsilon  # PPO Clipping epsilon
@@ -207,18 +232,20 @@ class CNN_PPO_Agent:
 
     def save_checkpoint(self, episode):
         """Saves the model checkpoint"""
-        torch.save(self.model.state_dict(), self.checkpoint_path)
+        Path(self.checkpoint_path).mkdir(parents=True, exist_ok=True)
+        torch.save(self.policy_net.state_dict(), f"{self.checkpoint_path}/{self.run_name}_episode_{episode}.pth")
         print(f"Checkpoint saved at episode {episode}")
 
-    def load_checkpoint(self):
+    def load_checkpoint(self, file):
         """Loads the model checkpoint"""
         if os.path.exists(self.checkpoint_path):
-            self.model.load_state_dict(torch.load(self.checkpoint_path))
+            self.policy_net.load_state_dict(torch.load(f"{self.checkpoint_path}/{file}"))
             print("Checkpoint loaded.")
 
     def _log_reward(self, episode, reward):
         """Logs episode rewards to CSV"""
-        with open(self.reward_log_file, "a", newline="") as file:
+        Path(self.reward_log_file).mkdir(parents=True, exist_ok=True)
+        with open(f"{self.reward_log_file}/{self.run_name}.csv", "a", newline="") as file:
             writer = csv.writer(file)
             writer.writerow([episode, reward])
 

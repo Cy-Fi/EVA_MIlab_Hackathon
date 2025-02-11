@@ -20,38 +20,50 @@ Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
 class CNN_DQN(nn.Module):
-    """CNN Model for Deep Q-Learning"""
+    """Improved CNN Model for Deep Q-Learning"""
     def __init__(self, input_shape):
         super(CNN_DQN, self).__init__()
 
-        self.conv1 = nn.Conv2d(1, 6, kernel_size=3, stride=2)
-        self.conv2 = nn.Conv2d(6, 6, kernel_size=3, stride=1)
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2) 
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=1) 
         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        self.conv3 = nn.Conv2d(6, 12, kernel_size=3)
-        self.conv3 = nn.Conv2d(12, 24, kernel_size=3)
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=1) 
+        self.conv4 = nn.Conv2d(64, 64, kernel_size=3, stride=1) 
         self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
         self.flatten = nn.Flatten()
 
-        self.fc1 = nn.Linear(600, 100)
-        self.fc2_steering = nn.Linear(100, 1)
-        self.fc2_gas = nn.Linear(100, 1)
+        # Calculate the output shape dynamically after convolutions
+        dummy_input = torch.zeros(1, 1, 96, 96)
+        with torch.no_grad():
+            conv_out_size = self._get_conv_output(dummy_input)
+
+        self.fc1 = nn.Linear(conv_out_size, 256) 
+        self.fc2_steering = nn.Linear(256, 1)
+        self.fc2_gas = nn.Linear(256, 1)
+
+    def _get_conv_output(self, x):
+        """Pass a dummy tensor to get output shape dynamically"""
+        x = self.pool1(torch.relu(self.conv1(x)))
+        x = self.pool2(torch.relu(self.conv2(x)))
+        x = torch.relu(self.conv3(x))
+        x = torch.relu(self.conv4(x))  
+        return self.flatten(x).shape[1]
 
     def forward(self, x):
-        x = torch.unsqueeze(torch.mean(x, dim=-1), 1) #RGB to Gray by taking the mean -> shape [batch_size, 1, 96, 96]
-        # print(f"Model in shape: {x.shape}")
+        x = torch.unsqueeze(torch.mean(x, dim=-1), 1)  # RGB to Grayscale
         x = self.pool1(torch.relu(self.conv1(x)))
-
         x = self.pool2(torch.relu(self.conv2(x)))
+        x = torch.relu(self.conv3(x))
+        x = torch.relu(self.conv4(x))
 
         x = self.flatten(x)
         x = torch.relu(self.fc1(x))
 
         action = torch.tanh(self.fc2_steering(x))
         gas = torch.sigmoid(self.fc2_gas(x))
-        
-        out = torch.cat([action.unsqueeze(0), gas.unsqueeze(0), (1 - gas).unsqueeze(0)], dim=-1).squeeze() # return shape [batch_size, 3]
-        # print(f"Model out shape: {out.shape}")
+
+        out = torch.cat([action.unsqueeze(0), gas.unsqueeze(0), (1 - gas).unsqueeze(0)], dim=-1).squeeze()
         return out
 
 class CNN_DQN_Agent:

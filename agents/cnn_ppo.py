@@ -19,8 +19,13 @@ class CNN_PPO(nn.Module):
         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
 
         self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=1) 
-        self.conv4 = nn.Conv2d(64, 64, kernel_size=3, stride=1) 
+        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=1) 
         self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
+        
+        self.conv5 = nn.Conv2d(128, 128, kernel_size=3, stride=1) 
+        self.conv6 = nn.Conv2d(128, 256, kernel_size=3, stride=1) 
+        self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2)
+        
         self.flatten = nn.Flatten()
 
         # Calculate the output shape dynamically after convolutions
@@ -28,10 +33,10 @@ class CNN_PPO(nn.Module):
         with torch.no_grad():
             conv_out_size = self._get_conv_output(dummy_input)
 
-        self.fc1 = nn.Linear(conv_out_size, 256) 
-        self.fc2_steering = nn.Linear(256, 1)  # Steering output
-        self.fc2_gas = nn.Linear(256, 1)       # Gas output
-        self.value_head = nn.Linear(256, 1)    # Value function for critic
+        self.fc1 = nn.Linear(conv_out_size, 64) 
+        self.fc2_steering = nn.Linear(64, 1)  # Steering output
+        self.fc2_gas = nn.Linear(64, 1)       # Gas output
+        self.value_head = nn.Linear(64, 1)    # Value function for critic
 
         self.log_std = nn.Parameter(torch.zeros(num_actions))  # Log standard deviation for policy
 
@@ -39,6 +44,7 @@ class CNN_PPO(nn.Module):
         """Pass a dummy tensor to get output shape dynamically"""
         x = self.pool1(torch.relu(self.conv1(x)))
         x = self.pool2(torch.relu(self.conv2(x)))
+        x = self.pool3(torch.relu(self.conv3(x)))
         x = torch.relu(self.conv3(x))
         x = torch.relu(self.conv4(x))  
         return self.flatten(x).shape[1]
@@ -50,10 +56,17 @@ class CNN_PPO(nn.Module):
 
         x = torch.mean(x, dim=1, keepdim=True)  # Convert RGB to grayscale
 
-        x = self.pool1(torch.relu(self.conv1(x)))
-        x = self.pool2(torch.relu(self.conv2(x)))
+        x = torch.relu(self.conv1(x))
+        x = torch.relu(self.conv2(x))
+        x = self.pool1(x)
+        
         x = torch.relu(self.conv3(x))
         x = torch.relu(self.conv4(x))
+        x = self.pool2(x)
+        
+        x = torch.relu(self.conv5(x))
+        x = torch.relu(self.conv6(x))
+        x = self.pool3(x)
 
         x = self.flatten(x)
         x = torch.relu(self.fc1(x))

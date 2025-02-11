@@ -21,57 +21,68 @@ Transition = namedtuple('Transition',
 
 class CNN_DQN(nn.Module):
     """Improved CNN Model for Deep Q-Learning"""
-    def __init__(self, input_shape):
+    def __init__(self, input_shape, img_stack, DISCRETE_ACTIONS):
         super(CNN_DQN, self).__init__()
 
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2) 
+        self.DISCRETE_ACTIONS = DISCRETE_ACTIONS
+
+        self.conv1 = nn.Conv2d(img_stack, 16, kernel_size=3, stride=2) 
         self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=1) 
         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
-
+        
         self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=1) 
-        self.conv4 = nn.Conv2d(64, 64, kernel_size=3, stride=1) 
+        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=1) 
         self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
+        
+        self.conv5 = nn.Conv2d(128, 256, kernel_size=3, stride=1)  
+        self.conv6 = nn.Conv2d(256, 512, kernel_size=3, stride=1) 
+        self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2) 
+        
         self.flatten = nn.Flatten()
 
         # Calculate the output shape dynamically after convolutions
-        dummy_input = torch.zeros(1, 1, 96, 96)
+        dummy_input = torch.zeros(1, img_stack, 96, 96)
         with torch.no_grad():
-            conv_out_size = self._get_conv_output(dummy_input)
+            print(self._get_conv_output(dummy_input).shape[1])
+            conv_out_size = self._get_conv_output(dummy_input).shape[1]
 
         self.fc1 = nn.Linear(conv_out_size, 256) 
-        self.fc2_steering = nn.Linear(256, 1)
-        self.fc2_gas = nn.Linear(256, 1)
+        self.fc2 = nn.Linear(256, len(self.DISCRETE_ACTIONS))  # Output Q-values for each discrete action
 
     def _get_conv_output(self, x):
         """Pass a dummy tensor to get output shape dynamically"""
-        x = self.pool1(torch.relu(self.conv1(x)))
-        x = self.pool2(torch.relu(self.conv2(x)))
-        x = torch.relu(self.conv3(x))
-        x = torch.relu(self.conv4(x))  
-        return self.flatten(x).shape[1]
-
-    def forward(self, x):
-        x = torch.unsqueeze(torch.mean(x, dim=-1), 1)  # RGB to Grayscale
-        x = self.pool1(torch.relu(self.conv1(x)))
-        x = self.pool2(torch.relu(self.conv2(x)))
+        x = torch.relu(self.conv1(x))
+        x = torch.relu(self.conv2(x))
+        x = self.pool1(x)
+        
         x = torch.relu(self.conv3(x))
         x = torch.relu(self.conv4(x))
+        x = self.pool2(x)
 
+        x = torch.relu(self.conv5(x))  
+        x = torch.relu(self.conv6(x))  # New convolutional layer
+        x = self.pool3(x)  # New pooling layer
+        
         x = self.flatten(x)
+        
+        return x
+
+    def forward(self, x):
+        x = self._get_conv_output(x)
+
         x = torch.relu(self.fc1(x))
-
-        action = torch.tanh(self.fc2_steering(x))
-        gas = torch.sigmoid(self.fc2_gas(x))
-
-        out = torch.cat([action.unsqueeze(0), gas.unsqueeze(0), (1 - gas).unsqueeze(0)], dim=-1).squeeze()
-        return out
+        x = self.fc2(x)  # Output raw Q-values
+        
+        # print(f"out: {x.shape}")
+        return x
 
 class CNN_DQN_Agent:
     """Deep Q-Learning Agent with CNN"""
     def __init__(self, 
-          input_shape, 
-          action_space,
-          run_name, 
+          input_shape,
+          DISCRETE_ACTIONS,
+          run_name,
+          img_stack, 
           learning_rate, 
           gamma,
           tau,
@@ -83,9 +94,9 @@ class CNN_DQN_Agent:
           replay_buffer_size
           ):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        self.policy_net = CNN_DQN(input_shape).to(self.device)
-        self.target_net = CNN_DQN(input_shape).to(self.device)
+        self.img_stack = img_stack
+        self.policy_net = CNN_DQN(input_shape, img_stack, DISCRETE_ACTIONS).to(self.device)
+        self.target_net = CNN_DQN(input_shape, img_stack, DISCRETE_ACTIONS).to(self.device)
         
         self.target_net.load_state_dict(self.policy_net.state_dict())
 
@@ -97,42 +108,34 @@ class CNN_DQN_Agent:
         self.epsilon = epsilon_start
         self.epsilon_end = epsilon_end
         self.epsilon_decay_steps = epsilon_decay_steps
-        self.epsilon_schedule = torch.logspace(torch.log10(torch.tensor(self.epsilon)), torch.log10(torch.tensor(self.epsilon_end + 1e-9)), steps = self.epsilon_decay_steps)
         self.batch_size = batch_size
         self.steps_per_target_net_update = steps_per_target_net_update
         self.steps = 0
         self.episode_durations = []
-        self.action_space = action_space
+        self.DISCRETE_ACTIONS = DISCRETE_ACTIONS
 
         self.checkpoint_path = "checkpoints/cnn_dqn"
         self.reward_log_file = "logs/cnn_dqn"
     
     def select_action(self, state, explore=True):
-        """Selects an action using epsilon-greedy strategy"""
-        epsilon = self.epsilon
-        if self.steps >= self.epsilon_decay_steps:
-            epsilon = self.epsilon_end
-        else:
-            epsilon = self.epsilon_schedule[self.steps]
-
+        epsilon = self.epsilon if self.steps < self.epsilon_decay_steps else self.epsilon_end
         if explore and np.random.rand() < epsilon:
-            # Random action
-            steering = torch.tanh(torch.randn(1)).item()  # Random steering in [-1, 1]
-            gas = torch.sigmoid(torch.randn(1)).item()  # Random gas in [0, 1]
-
-            # Construct the action array
-            return torch.tensor([steering, gas, 1 - gas], dtype=torch.float32)
+            return torch.tensor(random.randint(0, len(self.DISCRETE_ACTIONS) - 1), device = self.device)
         
         with torch.no_grad():
-            return self.policy_net(state)
+            out = self.policy_net(state).cpu().item()  # Ensure it's an integer
+            # Convert Q-values to discrete actions
+            return out.argmax(dim=-1)  # Get index of max Q-value
+
+    def get_action_from_action_index(self, action_indices):
+        discrete_actions = torch.tensor(self.DISCRETE_ACTIONS, device=self.device)
+        return discrete_actions[action_indices]
 
     def train_step(self):
         """Trains the policy_net using replay memory"""
         if len(self.memory) < self.batch_size:
             return
-
         transitions = self.memory.sample(self.batch_size)
-        
         batch = Transition(*zip(*transitions))
 
         # Compute a mask of non-final states and concatenate the batch elements
@@ -143,13 +146,13 @@ class CNN_DQN_Agent:
                                                     if s is not None])
         
         state_batch = torch.cat(batch.state)
-        action_batch = torch.stack(batch.action, 0)
+        action_batch = torch.stack(batch.action).unsqueeze(1)
         reward_batch = torch.cat(batch.reward)
 
         # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
         # columns of actions taken. These are the actions which would've been taken
         # for each batch state according to policy_net
-        state_action_values = self.policy_net(state_batch)
+        state_action_values = self.policy_net(state_batch).gather(1, action_batch)
 
         # Compute V(s_{t+1})= max_a Q(s_{t+1}, a) for all next states.
         # Expected values of actions for non_final_next_states are computed based
@@ -158,18 +161,8 @@ class CNN_DQN_Agent:
         # state value or 0 in case the state was final.
         next_state_values = torch.zeros(self.batch_size, device=self.device)
         with torch.no_grad():
-            # Compute next best actions using the policy network (actor)
-            next_best_actions = self.policy_net(non_final_next_states)  # Expected shape: [batch_size, 3]
-
-            # Compute Q-values for these best actions using the target network (critic)
-            next_q_values = self.target_net(non_final_next_states)  # Expected shape: [batch_size, 3]
-
-            # Compute max Q-value across the three action dimensions
-            max_q_values = next_q_values.max(dim=1).values  # Expected shape: [batch_size]
-
-            # Ensure that max_q_values[non_final_mask] is indexed correctly
-            next_state_values[non_final_mask] = max_q_values[non_final_mask]
-
+            next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1).values
+            
         # Compute the expected state-action values (Q values)
         #   Q(s_t,a_t) = r  + [GAMMA * max_a Q(s_{t+1}, a)]
         expected_state_action_values = reward_batch + (self.gamma * next_state_values)
@@ -180,12 +173,12 @@ class CNN_DQN_Agent:
         expected_state_action_values = expected_state_action_values.expand_as(state_action_values)  # Match shape
 
         loss = criterion(state_action_values, expected_state_action_values)  # Compute loss
-
+        
         # Optimize the model
         self.optimizer.zero_grad()
         loss.backward()
         
-        # In-place gradient clipping
+        # Gradient clipping to prevent exploding gradients
         torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
         self.optimizer.step()
 
@@ -199,17 +192,20 @@ class CNN_DQN_Agent:
 
         self.steps += 1
 
+
     def save_checkpoint(self, episode):
         """Saves the model checkpoint"""
         Path(self.checkpoint_path).mkdir(parents=True, exist_ok=True)
         torch.save(self.policy_net.state_dict(), f"{self.checkpoint_path}/{self.run_name}_episode_{episode}.pth")
         print(f"Checkpoint saved at episode {episode}")
 
+
     def load_checkpoint(self, file):
         """Loads the model checkpoint"""
         if os.path.exists(self.checkpoint_path):
             self.policy_net.load_state_dict(torch.load(f"{self.checkpoint_path}/{file}"))
             print("Checkpoint loaded.")
+
 
     def log_reward(self, episode, reward):
         """Logs episode rewards to CSV"""
@@ -218,8 +214,3 @@ class CNN_DQN_Agent:
             writer = csv.writer(file)
             writer.writerow([episode, reward])
 
-
-    def log_loss(self, loss):
-        with open(self.loss_log_file, "a", newline="") as file:
-            writer = csv.writer(file)
-            writer.writerow([self.steps, loss])

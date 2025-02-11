@@ -9,7 +9,7 @@ import torch
 from matplotlib import pyplot as plt
 
 
-
+from utils.env_wrapper import Env
 from agents.cnn_dqn import CNN_DQN_Agent
 
 
@@ -44,30 +44,30 @@ def plot_durations(episode_durations, show_result=False, save_path=None):
         print(f"Plot saved at {save_path}")
 
 
-def train_agent(episodes, run_name, hyperparameters, load_from_checkpoint = ''):
-    env = gym.make("CarRacing-v3", render_mode="rgb_array", lap_complete_percent=0.95, domain_randomize=False, continuous=True)
-    
+def train_agent(episodes, run_name, env_hyperparameters, hyperparameters):
+    env = Env("CarRacing-v3",
+              **env_hyperparameters)
+
     agent = CNN_DQN_Agent(
-        input_shape=env.observation_space.shape, 
-        action_space=env.action_space,
-        run_name = run_name,
+        input_shape=env.env.observation_space.shape,
+        DISCRETE_ACTIONS = env.DISCRETE_ACTIONS,
+        run_name = RUN_NAME,
+        img_stack = env_hyperparameters['img_stack'],
         **hyperparameters
         )
-
-    if load_from_checkpoint != '':
-        agent.load_checkpoint(load_from_checkpoint)
+    # agent.load_checkpoint()
 
 
     for episode in range(episodes):
         state, info = env.reset()
-        state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+        
         total_reward = 0
         done = False
 
         for t in count():
             action = agent.select_action(state)
-
-            observation, reward, terminated, truncated, info = env.step(action.cpu().numpy())
+            
+            observation, reward, terminated, truncated, info = env.step(agent.get_action_from_action_index(action).cpu().numpy())
             reward = torch.tensor([reward], device=device)
             done = terminated or truncated
 
@@ -75,8 +75,12 @@ def train_agent(episodes, run_name, hyperparameters, load_from_checkpoint = ''):
                 next_state = None
             else:
                 next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
-
-            agent.memory.push(state.to(agent.device), action.to(agent.device), next_state.to(agent.device), reward.to(agent.device))
+            
+            agent.memory.push(
+                  state.to(agent.device), 
+                  action.to(agent.device), 
+                  next_state.to(agent.device) if next_state is not None else None, 
+                  reward.to(agent.device))
             agent.train_step()
             state = next_state
             total_reward += reward
@@ -95,7 +99,7 @@ def train_agent(episodes, run_name, hyperparameters, load_from_checkpoint = ''):
         if episode % 50 == 0 and episode > 0:
             agent.save_checkpoint(episode)
 
-        
+
 
         print(f"Episode {episode}: Total Reward: {total_reward.cpu().item()}")
 
@@ -105,25 +109,36 @@ if __name__ == '__main__':
     
 
 
-  is_ipython = 'inline' in matplotlib.get_backend()
-  if is_ipython:
-      from IPython import display
-  device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-  print(f"Using device {device}")
+    is_ipython = 'inline' in matplotlib.get_backend()
+    if is_ipython:
+        from IPython import display
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device {device}")
 
-  hyperparameters = {
-      "batch_size": 64,
-      "gamma": 0.95,
-      "epsilon_start": 1.0,
-      "epsilon_end": 0.1,
-      "tau": 0.005,
-      "epsilon_decay_steps": 200,
-      "learning_rate": 0.001,
-      "replay_buffer_size": 64,
-      "steps_per_target_net_update": 512
-  }
+    env_hyperparameters = {
+        "random_seed": 1,
+        "img_stack": 4, # Number of frames per state
+        "action_repeat": 8 # How many times to repeach each action per state
+    }
+
+    hyperparameters = {
+        "batch_size": 128,  # More stable training
+        "gamma": 0.99,  # Focus more on long-term rewards
+        "epsilon_start": 1.0,
+        "epsilon_end": 0.1,
+        "tau": 0.01,  # Faster soft updates
+        "epsilon_decay_steps": 25000,  # Balance exploration & exploitation
+        "learning_rate": 0.0003,  # Keep same
+        "replay_buffer_size": 50000,  # Store more experience
+        "steps_per_target_net_update": 1000  # Update target net less frequently
+    }
 
 
-  RUN_NAME = f"CNN_DQN_{strftime('%Y%m%d%H%M%S', gmtime())}"
-  train_agent(episodes = 300, run_name = RUN_NAME, hyperparameters=hyperparameters)
+    RUN_NAME = f"CNN_DQN_{strftime('%Y%m%d%H%M%S', gmtime())}"
+    train_agent(
+        episodes = 500, 
+        run_name = RUN_NAME,
+        env_hyperparameters = env_hyperparameters,
+        hyperparameters = hyperparameters
+        )
 

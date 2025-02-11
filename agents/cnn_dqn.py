@@ -119,12 +119,17 @@ class CNN_DQN_Agent:
     def select_action(self, state, explore=True):
         epsilon = self.epsilon if self.steps < self.epsilon_decay_steps else self.epsilon_end
         if explore and np.random.rand() < epsilon:
-            return torch.tensor(random.randint(0, len(self.DISCRETE_ACTIONS) - 1), device = self.device)
+            # rand_action = torch.tensor(random.randint(0, len(self.DISCRETE_ACTIONS) - 1), device = self.device)
+            rand_action = torch.rand((state.shape[0], len(self.DISCRETE_ACTIONS) - 1)).argmax(dim=1).to(self.device).view(-1, 1)
+            # print(f"rand_action: {rand_action.shape}")
+            return rand_action
         
         with torch.no_grad():
-            out = self.policy_net(state).cpu().item()  # Ensure it's an integer
+            # print(f"state: {state.shape}")
+            out = self.policy_net(state.to(self.device))
+            # print(f"out: {out.shape}, greed action: {out.argmax(-1).view(-1, 1)}")
             # Convert Q-values to discrete actions
-            return out.argmax(dim=-1)  # Get index of max Q-value
+            return out.argmax(-1).view(-1, 1)  # Get index of max Q-value
 
     def get_action_from_action_index(self, action_indices):
         discrete_actions = torch.tensor(self.DISCRETE_ACTIONS, device=self.device)
@@ -145,7 +150,7 @@ class CNN_DQN_Agent:
                                                     if s is not None])
         
         state_batch = torch.cat(batch.state)
-        action_batch = torch.stack(batch.action).unsqueeze(1)
+        action_batch = torch.stack(batch.action).view(-1, 1)
         reward_batch = torch.cat(batch.reward)
 
         # Compute Q(s_t, a) - the model computes Q(s_t), then we select the

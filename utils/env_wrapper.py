@@ -7,8 +7,8 @@ class Env():
     Environment wrapper for CarRacing
     """
 
-    def __init__(self, env_name, random_seed, img_stack: int, action_repeat):
-        self.env = gym.make(env_name, continuous=True)
+    def __init__(self, env_name, random_seed, img_stack: int, action_repeat, render_mode=None):
+        self.env = gym.make(env_name, continuous=True, render_mode = render_mode)
         self.action_space = self.env.action_space
         self.reward_threshold = self.env.spec.reward_threshold
         self.img_stack = img_stack

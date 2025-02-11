@@ -38,6 +38,11 @@ def plot_durations(episode_durations, show_result=False):
         else:
             display.display(plt.gcf())
 
+    # Save the plot if a save path is provided
+    if save_path:
+        plt.savefig(save_path)
+        print(f"Plot saved at {save_path}")
+
 
 def train_agent(episodes, run_name, hyperparameters, load_from_checkpoint = ''):
     env = gym.make("CarRacing-v3", render_mode="rgb_array", lap_complete_percent=0.95, domain_randomize=False, continuous=True)
@@ -79,6 +84,10 @@ def train_agent(episodes, run_name, hyperparameters, load_from_checkpoint = ''):
             if done:
               agent.episode_durations.append(t + 1)
               plot_durations(agent.episode_durations)
+
+              # Save plot at the end of training
+              if episode == episodes - 1:  # Last episode
+                  plot_durations(agent.episode_durations, show_result=True, save_path=f"{run_name}_training_plot.png")
               break
 
         agent.log_reward(episode, total_reward)

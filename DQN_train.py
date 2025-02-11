@@ -12,6 +12,19 @@ from matplotlib import pyplot as plt
 from utils.env_wrapper import Env
 from agents.cnn_dqn import CNN_DQN_Agent
 
+from itertools import count
+import matplotlib
+import matplotlib.pyplot as plt
+from time import gmtime, strftime
+import gymnasium as gym
+import numpy as np
+import torch
+from matplotlib import pyplot as plt
+
+
+from utils.env_wrapper import Env
+from agents.cnn_dqn import CNN_DQN_Agent
+
 
 def plot_durations(episode_durations, show_result=False, save_path=None):
     plt.figure(1)
@@ -67,8 +80,10 @@ def train_agent(episodes, run_name, env_hyperparameters, hyperparameters):
         for t in count():
             action = agent.select_action(state)
             
-            observation, reward, terminated, truncated, info = env.step(agent.get_action_from_action_index(action).cpu().numpy())
-            reward = torch.tensor([reward], device=device)
+            observation, reward, terminated, truncated, info = env.step(
+                agent.get_action_from_action_index(action.item()).cpu().numpy()
+                )
+            reward = torch.tensor([reward], device=agent.device)
             done = terminated or truncated
 
             if terminated:
@@ -87,11 +102,11 @@ def train_agent(episodes, run_name, env_hyperparameters, hyperparameters):
 
             if done:
               agent.episode_durations.append(t + 1)
-              plot_durations(agent.episode_durations)
+              # plot_durations(agent.episode_durations)
 
               # Save plot at the end of training
-              if episode == episodes - 1:  # Last episode
-                  plot_durations(agent.episode_durations, show_result=True, save_path=f"plots/{run_name}_training_plot.png")
+              # if episode == episodes - 1:  # Last episode
+                  # plot_durations(agent.episode_durations, show_result=True, save_path=f"plots/{run_name}_training_plot.png")
               break
 
         agent.log_reward(episode, total_reward)
@@ -101,9 +116,11 @@ def train_agent(episodes, run_name, env_hyperparameters, hyperparameters):
 
 
 
-        print(f"Episode {episode}: Total Reward: {total_reward.cpu().item()}")
+        print(f"Episode {episode}: Total Reward: {total_reward.cpu().item()}. Steps done: {agent.steps}")
 
     env.close()
+
+
 
 if __name__ == '__main__':
     

@@ -91,6 +91,7 @@ class CNN_PPO_Agent:
         self.epochs = 10  # PPO update epochs
         self.batch_size = 32  # Minibatch size
         self.training_step = 0
+        self.episode_durations = []
 
         #print("State Before CNN:", input_shape)
         self.net = CNN_PPO(input_shape, num_actions).to(self.device).float()  # Force float32
@@ -103,13 +104,10 @@ class CNN_PPO_Agent:
 
 
     def select_action(self, state):
-        """Selects action using PPO policy for continuous action space"""
-        
-        state = torch.tensor(state, dtype=torch.float32, device=self.device)
+        state = torch.tensor(state, dtype=torch.float32).to(self.device)
 
-        # Ensure correct shape (batch, channels, height, width)
         if state.ndim == 3:
-            state = state.permute(2, 0, 1).unsqueeze(0)  # Convert (H, W, C) → (1, C, H, W)
+            state = state.permute(2, 0, 1).unsqueeze(0)  # Ensure shape is (1, C, H, W)
 
         with torch.no_grad():
             action_mean, value, std = self.net(state)
@@ -117,25 +115,28 @@ class CNN_PPO_Agent:
             value = value.squeeze(0)
             std = std.squeeze(0)
 
-        # Create Gaussian distribution and sample action
+        # Ensure tensors are on CPU before conversion
         dist = Normal(action_mean, std)
         action = dist.sample()
         log_prob = dist.log_prob(action).sum()
 
-        # Convert action tensor to NumPy array
         action = action.cpu().numpy().flatten()
+        log_prob = log_prob.cpu().numpy()
+        value = value.cpu().numpy()
 
         action[0] = np.clip(action[0], -1, 1)   # Steering: [-1, 1]
         action[1] = np.clip(action[1], 0, 1)    # Gas: [0, 1]
         action[2] = np.clip(action[2], 0, 1)    # Brake: [0, 1]
 
-        return action, log_prob.cpu().numpy(), value.cpu().numpy()
-
+        return action, log_prob, value
 
 
     def store_transition(self, transition):
         """Stores (state, action, reward, next_state, log_prob, value, done)"""
         self.memory.append(transition)
+
+        if len(self.memory) > 5000:  # Prevent memory overflow
+            self.memory.pop(0)
 
     def compute_advantages(self, rewards, values, next_values, dones):
         """Computes GAE (Generalized Advantage Estimation)"""
@@ -166,30 +167,36 @@ class CNN_PPO_Agent:
 
 
     def update(self):
-        """Performs PPO update"""
         if len(self.memory) == 0:
             return
 
-        # Convert memory to tensors
+        # print(f"Running PPO update with {len(self.memory)} transitions")  # Debugging line
+
         states, actions, rewards, next_states, log_probs, values, dones = zip(*self.memory)
-        states = torch.tensor(np.array(states), dtype=torch.float32, device=self.device)
-        actions = torch.tensor(np.array(actions), dtype=torch.float32, device=self.device)
-        log_probs = torch.tensor(np.array(log_probs), dtype=torch.float32, device=self.device)
-        values = torch.tensor(np.array(values), dtype=torch.float32, device=self.device)
-        dones = torch.tensor(np.array(dones), dtype=torch.float32, device=self.device)
+
+        states = torch.stack(states).to(self.device)
+        actions = torch.tensor(np.array(actions), dtype=torch.float32).to(self.device)
+        log_probs = torch.tensor(np.array(log_probs), dtype=torch.float32).to(self.device)
+        values = torch.tensor(np.array(values), dtype=torch.float32).to(self.device)
+        dones = torch.tensor(np.array(dones), dtype=torch.float32).to(self.device)
 
         with torch.no_grad():
-            _, next_values, _ = self.net(torch.tensor(np.array(next_states), dtype=torch.float32, device=self.device))
+            next_states = torch.stack(next_states).to(self.device)
+            _, next_values, _ = self.net(next_states)
             next_values = next_values.squeeze()
 
+        # Convert tensors to CPU before passing to NumPy
         next_values = next_values.cpu().numpy()
-        if next_values.ndim == 0:  # If it's a scalar, expand it
-            next_values = np.expand_dims(next_values, axis=0)
+        values_cpu = values.cpu().numpy()
+        dones_cpu = dones.cpu().numpy()
 
-        advantages, returns = self.compute_advantages(rewards, values.cpu().numpy(), next_values, dones.cpu().numpy())
+        advantages, returns = self.compute_advantages(
+            rewards, values_cpu, next_values, dones_cpu
+        )
 
-        advantages = torch.tensor(advantages, dtype=torch.float32, device=self.device)
-        returns = torch.tensor(returns, dtype=torch.float32, device=self.device)
+        # Convert back to GPU tensor
+        advantages = torch.tensor(advantages, dtype=torch.float32).to(self.device)
+        returns = torch.tensor(returns, dtype=torch.float32).to(self.device)
 
         for _ in range(self.epochs):
             indices = np.arange(len(states))
@@ -205,36 +212,29 @@ class CNN_PPO_Agent:
                 batch_advantages = advantages[batch_idx]
                 batch_returns = returns[batch_idx]
 
-                # Forward pass
                 mean, values, std = self.net(batch_states)
                 dist = Normal(mean, std)
                 new_log_probs = dist.log_prob(batch_actions).sum(dim=-1)
 
-                # PPO Clipped Objective
                 ratio = torch.exp(new_log_probs - batch_old_log_probs)
                 clipped_ratio = torch.clamp(ratio, 1 - self.clip_epsilon, 1 + self.clip_epsilon)
                 policy_loss = -torch.min(ratio * batch_advantages, clipped_ratio * batch_advantages).mean()
 
-                # Value loss
                 value_loss = (values.squeeze() - batch_returns).pow(2).mean()
-
-                # Total loss
                 loss = policy_loss + 0.5 * value_loss - 0.01 * dist.entropy().mean()
 
-                # Optimize
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
 
-        # Clear memory after training
         self.memory = []
-
 
     def save_checkpoint(self, episode):
         """Saves the model checkpoint"""
         Path(self.checkpoint_path).mkdir(parents=True, exist_ok=True)
-        torch.save(self.policy_net.state_dict(), f"{self.checkpoint_path}/{self.run_name}_episode_{episode}.pth")
+        torch.save(self.net.state_dict(), f"{self.checkpoint_path}/{self.run_name}_episode_{episode}.pth")
         print(f"Checkpoint saved at episode {episode}")
+
 
     def load_checkpoint(self, file):
         """Loads the model checkpoint"""

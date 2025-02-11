@@ -13,7 +13,7 @@ from matplotlib import pyplot as plt
 from agents.cnn_dqn import CNN_DQN_Agent
 
 
-def plot_durations(episode_durations, show_result=False):
+def plot_durations(episode_durations, show_result=False, save_path=None):
     plt.figure(1)
     durations_t = torch.tensor(episode_durations, dtype=torch.float)
     if show_result:
@@ -87,7 +87,7 @@ def train_agent(episodes, run_name, hyperparameters, load_from_checkpoint = ''):
 
               # Save plot at the end of training
               if episode == episodes - 1:  # Last episode
-                  plot_durations(agent.episode_durations, show_result=True, save_path=f"{run_name}_training_plot.png")
+                  plot_durations(agent.episode_durations, show_result=True, save_path=f"plots/{run_name}_training_plot.png")
               break
 
         agent.log_reward(episode, total_reward)

@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from torch.nn.modules import conv
 import torch.optim as optim
 from torchvision.transforms.functional import rgb_to_grayscale
 from torch.distributions import Normal
@@ -22,9 +23,9 @@ class CNN_PPO(nn.Module):
         self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=1) 
         self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
         
-        self.conv5 = nn.Conv2d(128, 128, kernel_size=3, stride=1) 
-        self.conv6 = nn.Conv2d(128, 256, kernel_size=3, stride=1) 
-        self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.conv5 = nn.Conv2d(128, 128, kernel_size=2, stride=1) 
+        self.conv6 = nn.Conv2d(128, 256, kernel_size=2, stride=1) 
+        self.pool3 = nn.MaxPool2d(kernel_size=2, stride=1)
         
         self.flatten = nn.Flatten()
 
@@ -33,6 +34,7 @@ class CNN_PPO(nn.Module):
         with torch.no_grad():
             conv_out_size = self._get_conv_output(dummy_input)
 
+        print("Conv out size", conv_out_size)
         self.fc1 = nn.Linear(conv_out_size, 64) 
         self.fc2_steering = nn.Linear(64, 1)  # Steering output
         self.fc2_gas = nn.Linear(64, 1)       # Gas output
@@ -43,11 +45,28 @@ class CNN_PPO(nn.Module):
     def _get_conv_output(self, x):
         """Pass a dummy tensor to get output shape dynamically"""
         x = self.pool1(torch.relu(self.conv1(x)))
-        x = self.pool2(torch.relu(self.conv2(x)))
-        x = self.pool3(torch.relu(self.conv3(x)))
+        print(f"After conv1 + pool1: {x.shape}")  # Debugging
+
+        x = torch.relu(self.conv2(x))
+        x = self.pool2(x)
+        print(f"After conv2 + pool2: {x.shape}")
+
         x = torch.relu(self.conv3(x))
-        x = torch.relu(self.conv4(x))  
-        return self.flatten(x).shape[1]
+        x = torch.relu(self.conv4(x))
+        x = self.pool3(x)  # Make sure pool3 is applied
+        print(f"After conv3 + conv4 + pool3: {x.shape}")
+
+        x = torch.relu(self.conv5(x))
+        print(f"After conv5: {x.shape}")
+
+        x = torch.relu(self.conv6(x))
+        print(f"After conv6: {x.shape}")
+
+        x = self.flatten(x)
+        print(f"Flattened output shape: {x.shape}")  
+
+        return x.shape[1]  # Returns correct flattened size
+
 
     def forward(self, x):
         x = x.float()
@@ -57,18 +76,21 @@ class CNN_PPO(nn.Module):
         x = torch.mean(x, dim=1, keepdim=True)  # Convert RGB to grayscale
 
         x = torch.relu(self.conv1(x))
-        x = torch.relu(self.conv2(x))
         x = self.pool1(x)
-        
+
+        x = torch.relu(self.conv2(x))
+        x = self.pool2(x)
+
         x = torch.relu(self.conv3(x))
         x = torch.relu(self.conv4(x))
-        x = self.pool2(x)
-        
+        x = self.pool3(x)  # Pooling applied exactly as in `_get_conv_output()`
+
         x = torch.relu(self.conv5(x))
         x = torch.relu(self.conv6(x))
-        x = self.pool3(x)
 
         x = self.flatten(x)
+        #print(f"Shape before fc1: {x.shape}")  # Debugging
+
         x = torch.relu(self.fc1(x))
 
         # Compute actions
@@ -83,6 +105,8 @@ class CNN_PPO(nn.Module):
         std = self.log_std.exp().expand_as(torch.cat([steering, gas, brake], dim=-1))
 
         return torch.cat([steering, gas, brake], dim=-1), value, std
+
+
 
 
 class CNN_PPO_Agent:

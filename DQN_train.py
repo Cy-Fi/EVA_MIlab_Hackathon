@@ -136,7 +136,7 @@ if __name__ == '__main__':
 
     RUN_NAME = f"CNN_DQN_{strftime('%Y%m%d%H%M%S', gmtime())}"
     train_agent(
-        episodes = 500, 
+        episodes = 2001, 
         run_name = RUN_NAME,
         env_hyperparameters = env_hyperparameters,
         hyperparameters = hyperparameters

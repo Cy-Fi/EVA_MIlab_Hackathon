@@ -43,7 +43,6 @@ class CNN_DQN(nn.Module):
         # Calculate the output shape dynamically after convolutions
         dummy_input = torch.zeros(1, img_stack, 96, 96)
         with torch.no_grad():
-            print(self._get_conv_output(dummy_input).shape[1])
             conv_out_size = self._get_conv_output(dummy_input).shape[1]
 
         self.fc1 = nn.Linear(conv_out_size, 256) 

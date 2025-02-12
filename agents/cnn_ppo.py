@@ -274,10 +274,20 @@ class CNN_PPO_Agent:
 
 
     def load_checkpoint(self, file):
-        """Loads the model checkpoint"""
-        if os.path.exists(self.checkpoint_path):
-            self.policy_net.load_state_dict(torch.load(f"{self.checkpoint_path}/{file}"))
-            print("Checkpoint loaded.")
+        """Loads the model checkpoint and ensures compatibility with CPU."""
+        checkpoint_path = f"checkpoints/cnn_ppo/{file}"  # Corrected path
+
+        if os.path.exists(checkpoint_path):
+            # Auto-detect GPU or force CPU if no GPU is available
+            map_location = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+            # Load model correctly
+            self.net.load_state_dict(torch.load(checkpoint_path, map_location=map_location))  
+            self.net.to(self.device)  # Move model to the correct device (CPU or GPU)
+
+            print(f"Checkpoint loaded from {checkpoint_path} on {self.device}")
+        else:
+            print(f"Checkpoint file not found: {checkpoint_path}")
 
     def _log_reward(self, episode, reward):
         """Logs episode rewards to CSV"""

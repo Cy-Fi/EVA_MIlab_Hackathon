@@ -59,8 +59,8 @@ class CNN_DQN(nn.Module):
         x = self.pool2(x)
 
         x = torch.relu(self.conv5(x))  
-        x = torch.relu(self.conv6(x))  # New convolutional layer
-        x = self.pool3(x)  # New pooling layer
+        x = torch.relu(self.conv6(x))
+        x = self.pool3(x)
         
         x = self.flatten(x)
         

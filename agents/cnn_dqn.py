@@ -89,7 +89,6 @@ class CNN_DQN_Agent:
           epsilon_end,
           epsilon_decay_steps,
           batch_size,
-          steps_per_target_net_update,
           replay_buffer_size
           ):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -108,7 +107,6 @@ class CNN_DQN_Agent:
         self.epsilon_end = epsilon_end
         self.epsilon_decay_steps = epsilon_decay_steps
         self.batch_size = batch_size
-        self.steps_per_target_net_update = steps_per_target_net_update
         self.steps = 0
         self.episode_durations = []
         self.DISCRETE_ACTIONS = DISCRETE_ACTIONS
@@ -173,10 +171,8 @@ class CNN_DQN_Agent:
 
         # Compute Huber loss
         criterion = nn.SmoothL1Loss()
-        expected_state_action_values = expected_state_action_values.unsqueeze(1)  # Ensure shape matches
-        expected_state_action_values = expected_state_action_values.expand_as(state_action_values)  # Match shape
-
-        loss = criterion(state_action_values, expected_state_action_values)  # Compute loss
+        loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
+        
         
         # Optimize the model
         self.optimizer.zero_grad()

@@ -1,17 +1,3 @@
-
-from itertools import count
-import matplotlib
-import matplotlib.pyplot as plt
-from time import gmtime, strftime
-import gymnasium as gym
-import numpy as np
-import torch
-from matplotlib import pyplot as plt
-
-
-from utils.env_wrapper import Env
-from agents.cnn_dqn import CNN_DQN_Agent
-
 from itertools import count
 import matplotlib
 import matplotlib.pyplot as plt
@@ -122,10 +108,10 @@ def train_agent(episodes, run_name, env_hyperparameters, hyperparameters):
 
 
 
+
+
 if __name__ == '__main__':
     
-
-
     is_ipython = 'inline' in matplotlib.get_backend()
     if is_ipython:
         from IPython import display
@@ -133,7 +119,7 @@ if __name__ == '__main__':
     print(f"Using device {device}")
 
     env_hyperparameters = {
-        "random_seed": 1,
+        "random_seed": 3,
         "img_stack": 4, # Number of frames per state
         "action_repeat": 8 # How many times to repeach each action per state
     }
@@ -141,19 +127,18 @@ if __name__ == '__main__':
     hyperparameters = {
         "batch_size": 128,  # More stable training
         "gamma": 0.99,  # Focus more on long-term rewards
-        "epsilon_start": 1.0,
-        "epsilon_end": 0.1,
-        "tau": 0.01,  # Faster soft updates
-        "epsilon_decay_steps": 25000,  # Balance exploration & exploitation
-        "learning_rate": 0.0003,  # Keep same
-        "replay_buffer_size": 50000,  # Store more experience
-        "steps_per_target_net_update": 1000  # Update target net less frequently
+        "epsilon_start": 0.9,
+        "epsilon_end": 0.05,
+        "tau": 0.005,  # Faster soft updates
+        "epsilon_decay_steps": 5000,  # Balance exploration & exploitation
+        "learning_rate": 1e-4,  # Keep same
+        "replay_buffer_size": 10000,  # Store more experience
     }
 
 
     RUN_NAME = f"CNN_DQN_{strftime('%Y%m%d%H%M%S', gmtime())}"
     train_agent(
-        episodes = 2001, 
+        episodes = 2000, 
         run_name = RUN_NAME,
         env_hyperparameters = env_hyperparameters,
         hyperparameters = hyperparameters

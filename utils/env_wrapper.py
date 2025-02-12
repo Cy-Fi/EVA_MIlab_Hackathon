@@ -55,6 +55,31 @@ class Env():
         
         return torch.FloatTensor(self.stack).squeeze(), total_reward, done, die, truncated
 
+    def inference_step(self, action):
+        total_reward = 0
+        frames = []
+        for i in range(self.action_repeat):
+            img_rgb, reward, die, truncated, _ = self.env.step(action)
+            frames.append(img_rgb)
+            # don't penalize "die state"
+            if die:
+                reward += 100
+            # green penalty
+            if np.mean(img_rgb[:, :, 1]) > 185.0:
+                reward -= 0.05
+            total_reward += reward
+            # if no reward recently, end the episode
+            done = True if self.av_r(reward) <= -0.1 else False
+            if done or die:
+                break
+
+        img_gray = self.rgb2gray(img_rgb)
+        self.stack.pop(0)
+        self.stack.append(np.expand_dims(img_gray, axis=0))
+        assert len(self.stack) == self.img_stack
+        
+        return torch.FloatTensor(self.stack).squeeze(), reward, done, die, truncated, frames
+
     def render(self, *arg):
         self.env.render(*arg)
 

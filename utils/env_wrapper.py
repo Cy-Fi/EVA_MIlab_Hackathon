@@ -60,7 +60,7 @@ class Env():
         frames = []
         for i in range(self.action_repeat):
             img_rgb, reward, die, truncated, _ = self.env.step(action)
-            frames.append(img_rgb)
+            frames.append(self.env.render())
             # don't penalize "die state"
             if die:
                 reward += 100
@@ -81,7 +81,7 @@ class Env():
         return torch.FloatTensor(self.stack).squeeze(), reward, done, die, truncated, frames
 
     def render(self, *arg):
-        self.env.render(*arg)
+        return self.env.render(*arg)
 
     @staticmethod
     def rgb2gray(rgb, norm=True):
